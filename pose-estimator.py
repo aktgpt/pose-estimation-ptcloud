@@ -1,5 +1,4 @@
 import csv
-import cairo
 from math import pi
 import argparse
 import itertools
@@ -32,6 +31,7 @@ def read_points_location(points_location):
         points2Dint.append([float(x) for x in points2D[i]])
     return points2Dint
 
+
 def _main_(args):
     known_points_path = args.known_points
     observed_points_path = args.observed_points
@@ -39,8 +39,9 @@ def _main_(args):
     observed_points = read_points_location(observed_points_path)
     potential_match = PointsMatcher(known_points, observed_points)
     potential_matches = potential_match.get_potential_correspondences()
-    pose = PoseEstimator(known_points, observed_points, potential_matches)
-
+    pose_estimator = PoseEstimator(known_points, observed_points, potential_matches)
+    pose = pose_estimator.get_transform()
+    print(pose)
 
 class PointsMatcher:
     def __init__(self, known_points, observed_points):
@@ -71,7 +72,6 @@ class PointsMatcher:
         points = np.asarray(points)
         eps = 1e-3
         for subset in itertools.combinations(range(len(points)), 3):
-            # TODO: add co-linearity condition
             cross_prod = np.linalg.norm(np.cross(points[subset[0]]-points[subset[1]],
                                   points[subset[0]]-points[subset[2]]))
             if cross_prod < eps:
@@ -84,7 +84,7 @@ class PointsMatcher:
             triangle_sides.append(sorted(triangle_side_lengths))
             triangle_lists_idx.append(subset_corrected)
             triangle_areas.append(self.area_from_points([points[subset[0]], points[subset[1]],
-                                    points[subset[2]]]))
+                                  points[subset[2]]]))
         return triangle_lists_idx, triangle_sides, triangle_areas
 
     def area_from_points(self, points):
@@ -137,54 +137,6 @@ class PointsMatcher:
                 search_times -= 1
                 potential_matches.append(local_maximas)
 
-        # search_times = 0
-        # if corres_mat.shape[0] >= corres_mat.shape[1]:
-        #     while search_times < 2:
-        #         local_maximas = np.empty([corres_mat.shape[1], 2])
-        #         for i in range(corres_mat.shape[1]):
-        #             local_maximas[i, :] = [np.argmax(corres_mat[:, i]), i]
-        #             corres_mat[np.argmax(corres_mat[:, i]), i] = 0
-        #         search_times += 1
-        #         potential_matches.append(local_maximas)
-        # else:
-        #     while search_times < 2:
-        #         local_maximas = np.empty([corres_mat.shape[0], 2])
-        #         for i in range(corres_mat.shape[0]):
-        #             local_maximas[i, :] = [i, np.argmax(corres_mat[i, :])]
-        #             corres_mat[i, np.argmax(corres_mat[i, :])] = 0
-        #         search_times += 1
-        #         potential_matches.append(local_maximas)
-
-        # if self.correspondence_matrix.shape[0] >= self.correspondence_matrix.shape[1]:
-        #     local_maximas = argrelextrema(self.correspondence_matrix, np.greater, mode='wrap', axis=0)
-        # else:
-        #     local_maximas = argrelextrema(self.correspondence_matrix, np.greater, mode='wrap', axis=1)
-        # values, start_idx, val_count = np.unique(local_maximas[0], return_index=True, return_counts=True)
-        # final_idx = []
-        # for i in range(len(val_count)):
-        #     if i == len(val_count)-1:
-        #         idx_values = [[local_maximas[0][j], local_maximas[1][j]] for j in range(start_idx[i], len(local_maximas[0]-1))
-        #                       if j < len(local_maximas[0])]
-        #     else:
-        #         idx_values = [[local_maximas[0][j], local_maximas[1][j]] for j in range(start_idx[i], start_idx[i+1])
-        #                       if j < len(local_maximas[0])]
-        #     if val_count[i] > 2:
-        #         # get best two similarity scores
-        #         similarity_score = []
-        #         for k in range(len(idx_values)):
-        #             similarity_score.append(self.correspondence_matrix[idx_values[k][0], idx_values[k][1]])
-        #         sorted_similarity_idx = np.argsort(similarity_score)
-        #         idx_values_new = [idx_values[sorted_similarity_idx[j]] for j in range(-2, 0)]
-        #     else:
-        #         idx_values_new = idx_values
-        #     final_idx.append(idx_values_new)
-        #
-        # potential_matches = np.asarray(potential_matches)
-
-        # # filter unique matches
-        # matches = [potential_matches[i, :, :] for i in range(potential_matches.shape[0]) if
-        #             len(np.unique(potential_matches[i, :, 1])) == len(potential_matches[i, :, 1])]
-
         # generate subsets of matches
         matches = []
         for i in range(len(potential_matches)):
@@ -205,19 +157,18 @@ class PoseEstimator:
         self.known_points = known_points
         self.observed_points = observed_points
         self.potential_matches = potential_matches
-        transforms = self.get_transform(known_points, observed_points, potential_matches)
 
-    def get_transform(self, known_points, observed_points, potential_matches):
+    def get_transform(self):
         errors = []
         Ts = []
         Rs = []
         ts = []
-        for i in range(len(potential_matches)):
-            known_combination = np.empty([len(potential_matches[i]), 3])
-            observed_combination = np.empty([len(potential_matches[i]), 3])
-            for j in range(len(potential_matches[i])):
-                known_combination[j, :] = known_points[potential_matches[i][j][0]]
-                observed_combination[j, :] = observed_points[potential_matches[i][j][1]]
+        for i in range(len(self.potential_matches)):
+            known_combination = np.empty([len(self.potential_matches[i]), 3])
+            observed_combination = np.empty([len(self.potential_matches[i]), 3])
+            for j in range(len(self.potential_matches[i])):
+                known_combination[j, :] = self.known_points[self.potential_matches[i][j][0]]
+                observed_combination[j, :] = self.observed_points[self.potential_matches[i][j][1]]
             T, R, t = self.best_fit_transform(known_combination, observed_combination)
             error = self.get_transformation_loss(known_combination, observed_combination, T)
             errors.append(error)
@@ -293,5 +244,5 @@ class PoseEstimator:
         return mean_error
 
 if __name__ == '__main__':
-    args = argparser.parse_args(['-kp', 'known_markers.csv', '-op', 'observed_markers.csv'])
+    args = argparser.parse_args(['-kp', 'tools/pose_estimation/known_markers.csv', '-op', 'tools/pose_estimation/observed_markers.csv'])
     _main_(args)
